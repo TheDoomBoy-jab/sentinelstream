@@ -3,7 +3,6 @@
 > **High-Throughput, Event-Driven Financial Fraud & Anomaly Scoring Engine**  
 > Built with **FastAPI**, **Redis**, **Apache Kafka**, **Supabase (PostgreSQL)**, **Prometheus**, **Grafana**, and **`uv`**, gated by automated **GitHub Actions CI/CD**.
 
-[![CI/CD Quality Gate](https://github.com/aahannayak/sentinelstream/actions/workflows/ci.yml/badge.svg)](https://github.com/aahannayak/sentinelstream/actions/workflows/ci.yml)
 ![Python Version](https://img.shields.io/badge/python-3.12-blue?logo=python)
 ![FastAPI](https://img.shields.io/badge/FastAPI-0.115+-009688?logo=fastapi)
 ![Redis](https://img.shields.io/badge/Redis-In--Memory%20Cache-DC382D?logo=redis)
@@ -14,7 +13,7 @@
 
 ---
 
-## 🏛️ System Architecture
+##  System Architecture
 
 ```
                           ┌──────────────────────────────────────────────┐
@@ -55,7 +54,7 @@
 
 ---
 
-## ✨ Key Features & Engineering Highlights
+## Key Features & Engineering Highlights
 
 * **Multi-Tier Storage Architecture**:
   * **Redis**: Ephemeral, sub-millisecond cache for duplicate transaction idempotency and rapid 60-second velocity tracking.
@@ -80,7 +79,7 @@
 
 ---
 
-## ⚡ Performance Benchmarks
+## Performance Benchmarks
 
 Measured on Apple Silicon using OrbStack container virtualization:
 
@@ -92,7 +91,7 @@ Measured on Apple Silicon using OrbStack container virtualization:
 
 ---
 
-## 🚀 Quickstart & Local Setup
+## Quickstart & Local Setup
 
 ### Prerequisites
 * [OrbStack](https://orbstack.dev/) or Docker Desktop
@@ -128,7 +127,7 @@ docker compose ps
 
 ---
 
-## 🧪 Testing the Endpoints
+## Testing the Endpoints
 
 ### 1. Healthcheck
 ```bash
@@ -182,7 +181,7 @@ Transactions with rapid velocity and anomalous hours receive `decision: "BLOCKED
 
 ---
 
-## 📊 Live Observability Dashboards
+## Live Observability Dashboards
 
 * **Prometheus Targets & Metrics**: [`http://localhost:9090`](http://localhost:9090)
   * Query metrics like `transactions_processed_total`, `fraud_detected_total`, or `cache_hits_total`.
@@ -205,7 +204,7 @@ uv run ruff check .
 
 ---
 
-## 📦 Project Structure
+## Project Structure
 
 ```text
 ├── .github/
@@ -232,5 +231,5 @@ uv run ruff check .
 
 ---
 
-## 📜 License
+## License
 MIT License. Open source and built for high-performance ML engineering education.
