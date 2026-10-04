@@ -39,3 +39,15 @@ dev = [
 
 [tool.pytest.ini_options]
 pythonpath = ["."]
+
+[tool.ruff]
+line-length = 100
+target-version = "py312"
+
+[tool.ruff.lint]
+ignore = [
+    "B008",   # Allow Depends() in FastAPI function arguments
+    "S110",   # Allow try-except pass for optional services
+    "BLE001", # Allow catching general Exception
+    "PLW1508" # Allow string/int env fallback
+]

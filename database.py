@@ -1,8 +1,10 @@
 import os
 from datetime import datetime
+
 from dotenv import load_dotenv
-from sqlalchemy import create_engine, Column, Integer, String, Float, Boolean, DateTime
+from sqlalchemy import Boolean, Column, DateTime, Float, Integer, String, create_engine
 from sqlalchemy.orm import declarative_base, sessionmaker
+
 load_dotenv()
 DATABASE_URL = os.getenv("SUPABASE_DB_URL", "")
 if not DATABASE_URL:

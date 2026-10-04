@@ -1,14 +1,15 @@
-import os
 import json
+import os
 import time
-from datetime import datetime
-from fastapi import FastAPI, Depends, HTTPException, Response
-from pydantic import BaseModel, Field
+
 import redis
+from fastapi import Depends, FastAPI, Response
 from kafka import KafkaProducer
+from prometheus_client import CONTENT_TYPE_LATEST, Counter, Histogram, generate_latest
+from pydantic import BaseModel, Field
 from sqlalchemy.orm import Session
-from prometheus_client import Counter, Histogram, generate_latest, CONTENT_TYPE_LATEST
-from database import get_db, TransactionAudit
+
+from database import TransactionAudit, get_db
 from ml_engine import predict_fraud
 
 app = FastAPI(title="sentinelstream fraud engine", version="1.0.0")

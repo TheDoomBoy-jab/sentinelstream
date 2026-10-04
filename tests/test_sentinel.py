@@ -1,8 +1,9 @@
-import time
-import os
 import glob
+import os
+import time
 
 from ml_engine import predict_fraud
+
 
 def test_no_pickle_files_in_repo():
     pickle_files = glob.glob("**/*.pkl", recursive=True)
