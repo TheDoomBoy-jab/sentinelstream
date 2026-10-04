@@ -1,12 +1,18 @@
 import json
+import logging
 import os
+from pathlib import Path
 
 import numpy as np
 
-MODEL_PATH = "model_weights.json"
+logger = logging.getLogger("sentinel_stream.ml_engine")
+
+_DEFAULT_PATH = Path(__file__).resolve().parent.parent.parent / "model_weights.json"
+MODEL_PATH = os.getenv("MODEL_WEIGHTS_PATH", str(_DEFAULT_PATH))
 
 
-def train_and_export_model():
+def train_and_export_model(target_path: str = MODEL_PATH):
+    """Exports logistic anomaly surrogate model weights to secure JSON format."""
     weights = {
         "model_type": "linear_logistic_surrogate",
         "version": "1.0.0",
@@ -21,22 +27,30 @@ def train_and_export_model():
             "review": 0.40
         }
     }
-    with open(MODEL_PATH, "w") as f:
+    target = Path(target_path)
+    target.parent.mkdir(parents=True, exist_ok=True)
+    with open(target, "w", encoding="utf-8") as f:
         json.dump(weights, f, indent=2)
+    logger.info("Exported model weights to %s", target)
+    return weights
 
 
-if not os.path.exists(MODEL_PATH):
-    train_and_export_model()
+def load_model_config(path: str = MODEL_PATH) -> dict:
+    if not os.path.exists(path):
+        return train_and_export_model(path)
+    with open(path, "r", encoding="utf-8") as f:
+        return json.load(f)
 
-with open(MODEL_PATH, "r") as f:
-    MODEL_CONFIG = json.load(f)
+
+MODEL_CONFIG = load_model_config()
 
 
-def _sigmoid(z):
+def _sigmoid(z: float) -> float:
     return 1.0 / (1.0 + np.exp(-z))
 
 
 def predict_fraud(amount: float, hour: int, velocity: int):
+    """Calculates real-time anomaly score, binary flag, and classification decision."""
     hour_risk = 1.0 if (hour < 5 or hour > 22) else 0.0
     coefs = MODEL_CONFIG["coefficients"]
 

@@ -57,9 +57,9 @@
 ## Key Features & Engineering Highlights
 
 * **Multi-Tier Storage Architecture**:
-  * **Redis**: Ephemeral, sub-millisecond cache for duplicate transaction idempotency and rapid 60-second velocity tracking.
-  * **Apache Kafka**: Decoupled, real-time message streaming. High-risk transactions are pushed to the `alerts.flagged` topic without blocking client responses.
-  * **Supabase (PostgreSQL)**: Permanent ACID-compliant ledger storing every scored transaction, audit decision, and metadata.
+  * **Redis**: Ephemeral, sub-millisecond cache for duplicate transaction idempotency and true 60-second sliding-window velocity tracking powered by Redis Sorted Sets (`ZSET`).
+  * **Apache Kafka**: Decoupled, real-time message streaming. High-risk transactions are pushed to the `alerts.flagged` topic in the background without blocking client responses.
+  * **Supabase (PostgreSQL)**: Permanent ACID-compliant ledger storing every scored transaction and audit decision via asynchronous, non-blocking FastAPI background tasks.
 * **Security-First Model Serialization**:
   * Eliminated Python `pickle` deserialization vulnerabilities (CWE-502). Model architecture and weights are stored in clean, auditable **JSON format**.
 * **Modern Tooling via `uv`**:
@@ -99,12 +99,16 @@ Measured on Apple Silicon using OrbStack container virtualization:
 
 ### 1. Clone the Repository
 ```bash
-git clone https://github.com/aahannayak/sentinelstream.git
+git clone https://github.com/TheDoomBoy-jab/sentinelstream.git
 cd sentinelstream
 ```
 
 ### 2. Configure Environment Variables
-Create a `.env` file in the root directory:
+Copy `.env.example` to create your local `.env`:
+```bash
+cp .env.example .env
+```
+Ensure your database URL and ports are set:
 ```env
 SUPABASE_DB_URL=postgresql://postgres.[PROJECT_REF]:[PASSWORD]@aws-0-[REGION].pooler.supabase.com:6543/postgres
 REDIS_PORT=6380
@@ -209,22 +213,24 @@ uv run ruff check .
 ```text
 ├── .github/
 │   └── workflows/
-│       └── ci.yml               # GitHub Actions CI/CD pipeline
+│       └── ci.yml               # GitHub Actions CI/CD quality gate
 ├── prometheus/
-│   └── prometheus.yml          # Scraper target configuration
+│   └── prometheus.yml          # Prometheus metrics scraper configuration
+├── src/
+│   └── sentinel_stream/
+│       ├── __init__.py          # Public package interfaces
+│       ├── database.py          # PostgreSQL / SQLite audit vault & schema
+│       ├── main.py              # FastAPI microservice, Redis sliding window & Kafka
+│       └── ml_engine.py         # Secure JSON logistic surrogate scoring engine
 ├── tests/
-│   └── test_sentinel.py        # Pytest suite with latency regression gates
+│   └── test_sentinel.py        # Pytest test suite, API tests & latency regression gate
 ├── .dockerignore
-├── .env.example
-├── .gitignore
-├── Dockerfile                  # Production multi-stage Docker build
+├── .env.example                 # Environment configuration template
+├── .gitignore                   # Comprehensive git exclusions
+├── Dockerfile                  # Multi-stage production container build
 ├── docker-compose.yml          # Infrastructure orchestration (5 services)
-├── database.py                 # Supabase PostgreSQL connection & schema
-├── main.py                     # Core FastAPI microservice & routing
-├── ml_engine.py                # Secure JSON-based anomaly scoring engine
-├── model_weights.json          # Model weights artifact
-├── model_weights.json.dvc      # DVC versioning pointer
-├── pyproject.toml              # Project dependencies & Ruff config
+├── model_weights.json.dvc      # DVC model versioning pointer
+├── pyproject.toml              # Project dependencies, Ruff & Pytest settings
 ├── uv.lock                     # Deterministic dependency lockfile
 └── README.md
 ```

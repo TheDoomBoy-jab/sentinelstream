@@ -11,7 +11,7 @@ COPY --from=ghcr.io/astral-sh/uv:latest /uv /uvx /bin/
 
 COPY pyproject.toml uv.lock ./
 
-# Create virtualenv in /opt/venv (outside /app!)
+# Create virtualenv in /opt/venv
 ENV UV_PROJECT_ENVIRONMENT=/opt/venv
 RUN uv sync --frozen --no-dev --no-install-project
 
@@ -21,7 +21,8 @@ WORKDIR /app
 
 ENV PYTHONUNBUFFERED=1 \
     PYTHONDONTWRITEBYTECODE=1 \
-    PATH="/opt/venv/bin:$PATH"
+    PATH="/opt/venv/bin:$PATH" \
+    PYTHONPATH="/app/src"
 
 RUN apt-get update && apt-get install -y --no-install-recommends \
     curl \
@@ -32,4 +33,4 @@ COPY . /app
 
 EXPOSE 8000
 
-CMD ["uvicorn", "main:app", "--host", "0.0.0.0", "--port", "8000"]
+CMD ["uvicorn", "sentinel_stream.main:app", "--host", "0.0.0.0", "--port", "8000"]
