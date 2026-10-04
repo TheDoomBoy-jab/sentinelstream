@@ -1,4 +1,4 @@
-# SentinelStream 🛡️⚡
+# SentinelStream 
 
 > **High-Throughput, Event-Driven Financial Fraud & Anomaly Scoring Engine**  
 > Built with **FastAPI**, **Redis**, **Apache Kafka**, **Supabase (PostgreSQL)**, **Prometheus**, **Grafana**, and **`uv`**, gated by automated **GitHub Actions CI/CD**.
