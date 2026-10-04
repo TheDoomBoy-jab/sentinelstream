@@ -1,0 +1,15 @@
+cat << 'EOF' > .dockerignore
+__pycache__
+*.pyc
+*.pyo
+*.pyd
+.Python
+env/
+venv/
+.venv/
+.git
+.gitignore
+.env
+.DS_Store
+*.md
+EOF
