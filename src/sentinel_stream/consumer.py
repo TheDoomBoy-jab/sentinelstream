@@ -9,7 +9,6 @@ import json
 import logging
 import os
 import signal
-import sys
 import time
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s [%(levelname)s] %(name)s: %(message)s")
@@ -84,7 +83,7 @@ def start_consumer(poll_timeout_ms: int = 1000):
             try:
                 # poll for messages
                 records = consumer.poll(timeout_ms=poll_timeout_ms)
-                for topic_partition, messages in records.items():
+                for messages in records.values():
                     for msg in messages:
                         payload = msg.value
                         process_fraud_alert(payload)

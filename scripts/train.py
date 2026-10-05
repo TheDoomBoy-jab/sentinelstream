@@ -7,7 +7,6 @@ and exports production model weights with feature scalers to model_weights.json.
 
 import json
 import logging
-import os
 from pathlib import Path
 
 import numpy as np
@@ -105,7 +104,7 @@ def evaluate_model(X_test, y_test, weights, bias, thresholds=(0.40, 0.75)):
     z = np.dot(X_test, weights) + bias
     scores = sigmoid(z)
 
-    rev_thresh, block_thresh = thresholds
+    _rev_thresh, block_thresh = thresholds
     preds_block = (scores >= block_thresh).astype(int)
 
     tp = np.sum((preds_block == 1) & (y_test == 1))
@@ -120,7 +119,7 @@ def evaluate_model(X_test, y_test, weights, bias, thresholds=(0.40, 0.75)):
         "precision": float(round(precision, 4)),
         "recall": float(round(recall, 4)),
         "f1": float(round(f1, 4)),
-        "test_samples": int(len(y_test)),
+        "test_samples": len(y_test),
         "fraud_cases": int(np.sum(y_test))
     }
 
