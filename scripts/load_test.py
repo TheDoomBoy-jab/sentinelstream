@@ -37,7 +37,7 @@ async def send_transaction(client: httpx.AsyncClient, payload: dict, latencies: 
 
 
 async def main():
-    print(f"\n🚀 Launching benchmark: {TOTAL_REQUESTS} transactions against SentinelStream...")
+    print(f"\nLaunching benchmark: {TOTAL_REQUESTS} transactions against SentinelStream...")
     print(f"Concurrency pool: {CONCURRENCY_LIMIT} simultaneous workers\n")
 
     # Generate 1,000 requests
@@ -102,13 +102,13 @@ async def main():
     avg_lat = sum(latencies) / len(latencies)
 
     print("=" * 60)
-    print("🎯 BENCHMARK RESULTS")
+    print("BENCHMARK RESULTS")
     print("=" * 60)
     print(f"Total Requests Processed:  {len(latencies)}")
     print(f"Total Elapsed Time:        {total_time:.2f} seconds")
     print(f"Throughput Capacity:       {throughput:.1f} req/sec")
     print("-" * 60)
-    print("⏱️ LATENCY PERCENTILES (Client-side HTTP)")
+    print("LATENCY PERCENTILES (Client-side HTTP)")
     print(f"  Average Latency:         {avg_lat:.2f} ms")
     print(f"  P50 (Median):            {p50:.2f} ms")
     print(f"  P90:                     {p90:.2f} ms")
@@ -116,7 +116,7 @@ async def main():
     print(f"  P99:                     {p99:.2f} ms")
     print(f"  Max Latency:             {latencies[-1]:.2f} ms")
     print("-" * 60)
-    print("📊 OUTCOME CLASSIFICATION BREAKDOWN")
+    print("OUTCOME CLASSIFICATION BREAKDOWN")
     print(f"  Approved (Clean):        {results.get('APPROVED', 0)}")
     print(f"  Blocked (Fraud Flagged): {results.get('BLOCKED', 0)}")
     print(f"  Review (Borderline):     {results.get('FLAGGED_REVIEW', 0)}")
