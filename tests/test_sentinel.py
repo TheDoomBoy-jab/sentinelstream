@@ -1,11 +1,13 @@
 import glob
+import json
 import os
 import time
 
 from fastapi.testclient import TestClient
 
-from sentinel_stream.main import app, get_sliding_velocity
-from sentinel_stream.ml_engine import predict_fraud
+from sentinel_stream.consumer import process_fraud_alert
+from sentinel_stream.main import app, get_kafka_producer, get_redis_client, get_sliding_velocity
+from sentinel_stream.ml_engine import MODEL_CONFIG, predict_fraud
 
 
 def test_no_pickle_files_in_repo():
@@ -17,6 +19,13 @@ def test_no_pickle_files_in_repo():
 def test_model_weights_json_exists():
     """Integrity Gate: Model configuration must be present."""
     assert os.path.exists("model_weights.json"), "model_weights.json is missing"
+
+
+def test_model_scaler_and_calibration():
+    """ML Quality Gate: Ensure feature standardization and calibrated metrics are present."""
+    assert "scaler" in MODEL_CONFIG, "Model scaler missing from weights configuration"
+    assert "metrics" in MODEL_CONFIG, "Model evaluation metrics missing from configuration"
+    assert MODEL_CONFIG["metrics"]["f1"] > 0.85, "Model F1 score is below production threshold"
 
 
 def test_safe_transaction_approval():
@@ -53,6 +62,30 @@ def test_sliding_velocity_fallback():
     """Resilience Gate: Gracefully returns fallback velocity if Redis is offline."""
     velocity = get_sliding_velocity("usr_mock_offline")
     assert velocity >= 1
+
+
+def test_resilient_connection_getters():
+    """Resilience Gate: Connection getters gracefully handle offline dependencies."""
+    # Test does not crash even when standalone / no container running
+    r_client = get_redis_client()
+    k_prod = get_kafka_producer()
+    assert r_client is None or hasattr(r_client, "ping")
+    assert k_prod is None or hasattr(k_prod, "send")
+
+
+def test_consumer_alert_processing():
+    """Event Streaming Gate: Verify consumer alert dispatcher executes cleanly."""
+    alert_payload = {
+        "transaction_id": "tx_test_fraud_99",
+        "user_id": "usr_suspect_42",
+        "amount": 2500.0,
+        "merchant": "Crypto Exchange",
+        "fraud_score": 0.985,
+        "is_fraud": True,
+        "decision": "BLOCKED"
+    }
+    # Should execute simulated mitigation workflows without raising exceptions
+    process_fraud_alert(alert_payload)
 
 
 def test_api_health_endpoint():

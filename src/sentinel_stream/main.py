@@ -19,50 +19,95 @@ REDIS_HOST = os.getenv("REDIS_HOST", "localhost")
 REDIS_PORT = int(os.getenv("REDIS_PORT", 6380))
 KAFKA_BOOTSTRAP = os.getenv("KAFKA_BOOTSTRAP_SERVERS", "localhost:9092")
 
-# Initialize Redis client
-try:
-    r: redis.Redis | None = redis.Redis(
-        host=REDIS_HOST,
-        port=REDIS_PORT,
-        decode_responses=True,
-        socket_connect_timeout=2.0
-    )
-except Exception as exc:
-    logger.warning("Redis initialization failed: %s", exc)
-    r = None
+# Internal singleton handles
+_redis_client: redis.Redis | None = None
+_kafka_producer = None
 
-# Initialize Kafka producer lazily/gracefully
-producer = None
-try:
-    from kafka import KafkaProducer
-    producer = KafkaProducer(
-        bootstrap_servers=KAFKA_BOOTSTRAP,
-        value_serializer=lambda v: json.dumps(v).encode("utf-8"),
-        request_timeout_ms=3000
-    )
-except Exception as exc:
-    logger.warning("Kafka producer unavailable at %s: %s", KAFKA_BOOTSTRAP, exc)
-    producer = None
+
+def get_redis_client() -> redis.Redis | None:
+    """Returns a connected Redis client with auto-reconnection resilience."""
+    global _redis_client
+    if _redis_client is not None:
+        try:
+            _redis_client.ping()
+            return _redis_client
+        except Exception:
+            logger.warning("Redis connection lost, reconnecting...")
+            _redis_client = None
+
+    try:
+        client = redis.Redis(
+            host=REDIS_HOST,
+            port=REDIS_PORT,
+            decode_responses=True,
+            socket_connect_timeout=2.0
+        )
+        client.ping()
+        _redis_client = client
+        return _redis_client
+    except Exception as exc:
+        logger.warning("Redis connection attempt failed: %s", exc)
+        return None
+
+
+def get_kafka_producer():
+    """Returns an active Kafka producer with lazy reconnect fallback."""
+    global _kafka_producer
+    if _kafka_producer is not None:
+        return _kafka_producer
+
+    try:
+        from kafka import KafkaProducer
+        _kafka_producer = KafkaProducer(
+            bootstrap_servers=KAFKA_BOOTSTRAP,
+            value_serializer=lambda v: json.dumps(v).encode("utf-8"),
+            request_timeout_ms=3000,
+            retries=3
+        )
+        return _kafka_producer
+    except Exception as exc:
+        logger.warning("Kafka producer unavailable at %s: %s", KAFKA_BOOTSTRAP, exc)
+        return None
+
+
+# Module-level aliases for backwards compatibility
+@property
+def r() -> redis.Redis | None:
+    return get_redis_client()
+
+
+@property
+def producer():
+    return get_kafka_producer()
 
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
-    # Startup: ensure tables exist
+    # Startup: ensure tables exist and probe connections
     init_db()
+    redis_conn = get_redis_client()
+    if redis_conn:
+        logger.info("Connected to Redis at %s:%s", REDIS_HOST, REDIS_PORT)
+    kafka_conn = get_kafka_producer()
+    if kafka_conn:
+        logger.info("Connected to Kafka at %s", KAFKA_BOOTSTRAP)
     logger.info("SentinelStream engine online.")
     yield
-    # Shutdown: flush / close connections
-    if producer:
+    # Shutdown: flush and close connections
+    global _kafka_producer, _redis_client
+    if _kafka_producer:
         try:
-            producer.flush(timeout=5)
-            producer.close(timeout=5)
+            _kafka_producer.flush(timeout=5)
+            _kafka_producer.close(timeout=5)
         except Exception:
             pass
-    if r:
+        _kafka_producer = None
+    if _redis_client:
         try:
-            r.close()
+            _redis_client.close()
         except Exception:
             pass
+        _redis_client = None
     logger.info("SentinelStream engine shut down.")
 
 
@@ -89,7 +134,8 @@ class TransactionRequest(BaseModel):
 
 def get_sliding_velocity(user_id: str, window_seconds: int = 60) -> int:
     """Calculates true sliding-window transaction velocity using Redis Sorted Sets (ZSET)."""
-    if not r:
+    client = get_redis_client()
+    if not client:
         return 1
 
     now = time.time()
@@ -97,7 +143,7 @@ def get_sliding_velocity(user_id: str, window_seconds: int = 60) -> int:
     velocity_key = f"user_velocity_zset:{user_id}"
 
     try:
-        pipe = r.pipeline()
+        pipe = client.pipeline()
         # Remove timestamps older than the sliding window
         pipe.zremrangebyscore(velocity_key, "-inf", cutoff)
         # Add current transaction timestamp with unique nano counter to handle sub-millisecond collisions
@@ -137,10 +183,11 @@ def persist_audit_record(record: dict):
 
 def emit_kafka_alert(payload: dict):
     """Background worker task to publish high-risk fraud alerts to Kafka."""
-    if not producer:
+    kp = get_kafka_producer()
+    if not kp:
         return
     try:
-        future = producer.send("alerts.flagged", payload)
+        future = kp.send("alerts.flagged", payload)
         future.add_errback(lambda err: logger.error("Kafka send failed: %s", err))
     except Exception as exc:
         logger.error("Kafka emission error for tx %s: %s", payload.get("transaction_id"), exc)
@@ -148,17 +195,19 @@ def emit_kafka_alert(payload: dict):
 
 @app.get("/health")
 def health():
+    client = get_redis_client()
     redis_healthy = False
-    if r:
+    if client:
         try:
-            redis_healthy = bool(r.ping())
+            redis_healthy = bool(client.ping())
         except Exception:
             redis_healthy = False
 
+    kp = get_kafka_producer()
     return {
         "status": "online",
         "redis_connected": redis_healthy,
-        "kafka_connected": producer is not None
+        "kafka_connected": kp is not None
     }
 
 
@@ -173,11 +222,12 @@ def score_transaction(req: TransactionRequest, background_tasks: BackgroundTasks
     TX_PROCESSED.inc()
 
     cache_key = f"tx_score:{req.transaction_id}"
+    client = get_redis_client()
 
     # 1. Idempotency Cache Check (<1ms)
-    if r:
+    if client:
         try:
-            cached_val = r.get(cache_key)
+            cached_val = client.get(cache_key)
             if cached_val:
                 CACHE_HITS.inc()
                 elapsed_ms = (time.perf_counter() - start_time) * 1000
@@ -222,9 +272,9 @@ def score_transaction(req: TransactionRequest, background_tasks: BackgroundTasks
     background_tasks.add_task(persist_audit_record, response_payload)
 
     # 5. Populate Idempotency Cache (60s TTL)
-    if r:
+    if client:
         try:
-            r.set(cache_key, json.dumps(response_payload), ex=60)
+            client.set(cache_key, json.dumps(response_payload), ex=60)
         except Exception as exc:
             logger.warning("Redis cache write failed: %s", exc)
 

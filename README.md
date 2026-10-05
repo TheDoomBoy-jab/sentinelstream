@@ -188,15 +188,20 @@ Transactions with rapid velocity and anomalous hours receive `decision: "BLOCKED
 ## Live Observability Dashboards
 
 * **Prometheus Targets & Metrics**: [`http://localhost:9090`](http://localhost:9090)
-  * Query metrics like `transactions_processed_total`, `fraud_detected_total`, or `cache_hits_total`.
+  * Scrapes application metrics every 5 seconds.
 * **Grafana Visualization UI**: [`http://localhost:3000`](http://localhost:3000) *(User: `admin` / Password: `admin`)*
-  * Add Prometheus data source at `http://prometheus:9090`.
+  * Automatically pre-provisioned with the Prometheus data source and the **SentinelStream Operational Dashboard** (visualizing throughput, P50/P90/P99 latencies, cache hit ratio, and fraud alert rate out-of-the-box).
 
 ---
 
 ## 🛠️ Automated CI/CD & Testing
 
-Run the automated test suite locally:
+Train and calibrate the ML surrogate model:
+```bash
+python scripts/train.py
+```
+
+Run the automated test suite:
 ```bash
 uv run pytest -v -s
 ```
@@ -214,21 +219,31 @@ uv run ruff check .
 ├── .github/
 │   └── workflows/
 │       └── ci.yml               # GitHub Actions CI/CD quality gate
+├── grafana/
+│   ├── dashboards/
+│   │   └── sentinel-dashboard.json # Pre-configured telemetry dashboard
+│   └── provisioning/
+│       ├── dashboards/dashboards.yaml # Auto-loads dashboard
+│       └── datasources/datasources.yaml # Auto-connects Prometheus
 ├── prometheus/
 │   └── prometheus.yml          # Prometheus metrics scraper configuration
+├── scripts/
+│   └── train.py                # Synthetic dataset generator & model calibration
 ├── src/
 │   └── sentinel_stream/
 │       ├── __init__.py          # Public package interfaces
+│       ├── consumer.py          # Kafka alert streaming consumer & automated mitigation
 │       ├── database.py          # PostgreSQL / SQLite audit vault & schema
-│       ├── main.py              # FastAPI microservice, Redis sliding window & Kafka
-│       └── ml_engine.py         # Secure JSON logistic surrogate scoring engine
+│       ├── main.py              # FastAPI microservice, Redis sliding window & Kafka producer
+│       └── ml_engine.py         # Standardized logistic anomaly scoring engine
 ├── tests/
-│   └── test_sentinel.py        # Pytest test suite, API tests & latency regression gate
+│   └── test_sentinel.py        # Pytest test suite, ML calibration & latency regression gates
 ├── .dockerignore
 ├── .env.example                 # Environment configuration template
 ├── .gitignore                   # Comprehensive git exclusions
 ├── Dockerfile                  # Multi-stage production container build
-├── docker-compose.yml          # Infrastructure orchestration (5 services)
+├── docker-compose.yml          # Infrastructure orchestration (6 services)
+├── model_weights.json          # Production model weights, scalers & calibration metrics
 ├── model_weights.json.dvc      # DVC model versioning pointer
 ├── pyproject.toml              # Project dependencies, Ruff & Pytest settings
 ├── uv.lock                     # Deterministic dependency lockfile

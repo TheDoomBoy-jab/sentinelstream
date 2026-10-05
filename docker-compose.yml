@@ -14,6 +14,7 @@ services:
       retries: 5
     networks:
       - sentinel-net
+
   kafka:
     image: apache/kafka:3.8.0
     container_name: sentinel-kafka
@@ -36,6 +37,7 @@ services:
       - kafka_data:/var/lib/kafka/data
     networks:
       - sentinel-net
+
   prometheus:
     image: prom/prometheus:v2.54.0
     container_name: sentinel-prometheus
@@ -47,6 +49,7 @@ services:
       - prometheus_data:/prometheus
     networks:
       - sentinel-net
+
   grafana:
     image: grafana/grafana:11.1.0
     container_name: sentinel-grafana
@@ -57,10 +60,13 @@ services:
       - GF_SECURITY_ADMIN_PASSWORD=admin
     volumes:
       - grafana_data:/var/lib/grafana
+      - ./grafana/provisioning:/etc/grafana/provisioning:ro
+      - ./grafana/dashboards:/var/lib/grafana/dashboards:ro
     depends_on:
       - prometheus
     networks:
       - sentinel-net
+
   api:
     build:
       context: .
@@ -81,11 +87,30 @@ services:
         condition: service_healthy
     networks:
       - sentinel-net
+
+  consumer:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: sentinel-consumer
+    restart: unless-stopped
+    command: ["python", "-m", "sentinel_stream.consumer"]
+    environment:
+      - KAFKA_BOOTSTRAP_SERVERS=kafka:9092
+      - KAFKA_ALERT_TOPIC=alerts.flagged
+    volumes:
+      - .:/app
+    depends_on:
+      - kafka
+    networks:
+      - sentinel-net
+
 volumes:
   redis_data:
   kafka_data:
   prometheus_data:
   grafana_data:
+
 networks:
   sentinel-net:
     driver: bridge

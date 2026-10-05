@@ -1,0 +1,11 @@
+apiVersion: 1
+
+providers:
+  - name: 'SentinelStream Dashboards'
+    orgId: 1
+    folder: 'SentinelStream'
+    type: file
+    disableDeletion: false
+    editable: true
+    options:
+      path: /var/lib/grafana/dashboards
