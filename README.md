@@ -56,19 +56,19 @@
 
 ## Key Features & Engineering Highlights
 
-* **Multi-Tier Storage Architecture**:
-  * **Redis**: Ephemeral, sub-millisecond cache for duplicate transaction idempotency and true 60-second sliding-window velocity tracking powered by Redis Sorted Sets (`ZSET`).
-  * **Apache Kafka**: Decoupled, real-time message streaming. High-risk transactions are pushed to the `alerts.flagged` topic in the background without blocking client responses.
-  * **Supabase (PostgreSQL)**: Permanent ACID-compliant ledger storing every scored transaction and audit decision via asynchronous, non-blocking FastAPI background tasks.
+* **Fully Asynchronous Architecture & Multi-Tier Storage**:
+  * **Async Redis (`redis.asyncio`)**: Ephemeral, sub-millisecond cache for duplicate transaction idempotency and true 60-second sliding-window velocity tracking powered by Redis Sorted Sets (`ZSET`) without blocking the ASGI event loop.
+  * **Decoupled Apache Kafka**: Real-time message streaming. High-risk transactions are published to the `alerts.flagged` topic asynchronously via background tasks.
+  * **Non-Blocking Supabase (PostgreSQL) / SQLite Vault**: Permanent ACID-compliant ledger storing every scored transaction and audit decision offloaded to asynchronous background worker tasks.
 * **Security-First Model Serialization**:
-  * Eliminated Python `pickle` deserialization vulnerabilities (CWE-502). Model architecture and weights are stored in clean, auditable **JSON format**.
+  * Eliminated Python `pickle` deserialization vulnerabilities (CWE-502). Model architecture, scalers, and calibrated weights are stored in clean, auditable **JSON format**.
 * **Modern Tooling via `uv`**:
   * 10x–100x faster environment resolution and reproducible builds powered by Astral's Rust-based `uv` and `uv.lock`.
 * **Telemetry & Observability**:
   * Custom Prometheus instrumentation tracking `transactions_processed_total`, `fraud_detected_total`, and `transaction_latency_seconds`.
-  * Pre-configured Grafana dashboards visualizing throughput, latency percentiles, and cache hit ratios.
+  * Pre-configured Grafana dashboards visualizing throughput, latency percentiles, and cache hit ratios out-of-the-box.
 * **Deterministic Artifact Versioning (DVC)**:
-  * Model artifacts are decoupled from Git history using **DVC** pointer hashes (`model_weights.json.dvc`).
+  * Model artifacts (`model_weights.json.dvc`) and authentic training datasets (**Kaggle European Cardholders Credit Card Fraud Detection** in `data/creditcard.csv.dvc`) are decoupled from Git history using **DVC** pointer hashes.
 * **Automated CI/CD Quality Gates**:
   * Every commit and PR is tested via **GitHub Actions**:
     1. Static type and style checks with **Ruff**.
@@ -219,6 +219,8 @@ uv run ruff check .
 ├── .github/
 │   └── workflows/
 │       └── ci.yml               # GitHub Actions CI/CD quality gate
+├── data/
+│   └── creditcard.csv.dvc       # DVC pointer for Kaggle European cardholders fraud dataset
 ├── grafana/
 │   ├── dashboards/
 │   │   └── sentinel-dashboard.json # Pre-configured telemetry dashboard
@@ -228,13 +230,13 @@ uv run ruff check .
 ├── prometheus/
 │   └── prometheus.yml          # Prometheus metrics scraper configuration
 ├── scripts/
-│   └── train.py                # Synthetic dataset generator & model calibration
+│   └── train.py                # Kaggle dataset trainer & model calibration pipeline
 ├── src/
 │   └── sentinel_stream/
 │       ├── __init__.py          # Public package interfaces
 │       ├── consumer.py          # Kafka alert streaming consumer & automated mitigation
 │       ├── database.py          # PostgreSQL / SQLite audit vault & schema
-│       ├── main.py              # FastAPI microservice, Redis sliding window & Kafka producer
+│       ├── main.py              # Asynchronous FastAPI microservice, Redis sliding window & Kafka
 │       └── ml_engine.py         # Standardized logistic anomaly scoring engine
 ├── tests/
 │   └── test_sentinel.py        # Pytest test suite, ML calibration & latency regression gates

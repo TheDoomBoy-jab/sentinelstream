@@ -1,15 +1,16 @@
+import asyncio
 import json
 import logging
 import os
 import time
 from contextlib import asynccontextmanager
 
-import redis
+import redis.asyncio as aioredis
 from fastapi import BackgroundTasks, FastAPI, Response
 from prometheus_client import CONTENT_TYPE_LATEST, Counter, Histogram, generate_latest
 from pydantic import BaseModel, Field
 
-from sentinel_stream.database import SessionLocal, TransactionAudit, init_db
+from sentinel_stream.database import init_db, persist_audit_record
 from sentinel_stream.ml_engine import predict_fraud
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s [%(levelname)s] %(name)s: %(message)s")
@@ -20,33 +21,33 @@ REDIS_PORT = int(os.getenv("REDIS_PORT", 6380))
 KAFKA_BOOTSTRAP = os.getenv("KAFKA_BOOTSTRAP_SERVERS", "localhost:9092")
 
 # Internal singleton handles
-_redis_client: redis.Redis | None = None
+_redis_client: aioredis.Redis | None = None
 _kafka_producer = None
 
 
-def get_redis_client() -> redis.Redis | None:
-    """Returns a connected Redis client with auto-reconnection resilience."""
+async def get_redis_client() -> aioredis.Redis | None:
+    """Returns an active asynchronous Redis client with auto-reconnection resilience."""
     global _redis_client
     if _redis_client is not None:
         try:
-            _redis_client.ping()
+            await _redis_client.ping()
             return _redis_client
         except Exception:
-            logger.warning("Redis connection lost, reconnecting...")
+            logger.warning("Async Redis connection lost, reconnecting...")
             _redis_client = None
 
     try:
-        client = redis.Redis(
+        client = aioredis.Redis(
             host=REDIS_HOST,
             port=REDIS_PORT,
             decode_responses=True,
             socket_connect_timeout=2.0
         )
-        client.ping()
+        await client.ping()
         _redis_client = client
         return _redis_client
     except Exception as exc:
-        logger.warning("Redis connection attempt failed: %s", exc)
+        logger.warning("Async Redis connection attempt failed: %s", exc)
         return None
 
 
@@ -70,28 +71,33 @@ def get_kafka_producer():
         return None
 
 
-# Module-level aliases for backwards compatibility
-@property
-def r() -> redis.Redis | None:
-    return get_redis_client()
+def _emit_kafka_alert_sync(payload: dict):
+    kp = get_kafka_producer()
+    if not kp:
+        return
+    try:
+        future = kp.send("alerts.flagged", payload)
+        future.add_errback(lambda err: logger.error("Kafka send failed: %s", err))
+    except Exception as exc:
+        logger.error("Kafka emission error for tx %s: %s", payload.get("transaction_id"), exc)
 
 
-@property
-def producer():
-    return get_kafka_producer()
+async def emit_kafka_alert(payload: dict):
+    """Asynchronously publishes high-risk fraud alerts to Kafka without blocking event loop."""
+    await asyncio.to_thread(_emit_kafka_alert_sync, payload)
 
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
-    # Startup: ensure tables exist and probe connections
+    # Startup: initialize database tables and probe connections
     init_db()
-    redis_conn = get_redis_client()
+    redis_conn = await get_redis_client()
     if redis_conn:
-        logger.info("Connected to Redis at %s:%s", REDIS_HOST, REDIS_PORT)
+        logger.info("Connected to Async Redis at %s:%s", REDIS_HOST, REDIS_PORT)
     kafka_conn = get_kafka_producer()
     if kafka_conn:
         logger.info("Connected to Kafka at %s", KAFKA_BOOTSTRAP)
-    logger.info("SentinelStream engine online.")
+    logger.info("SentinelStream engine online (Asynchronous Mode).")
     yield
     # Shutdown: flush and close connections
     global _kafka_producer, _redis_client
@@ -104,7 +110,7 @@ async def lifespan(app: FastAPI):
         _kafka_producer = None
     if _redis_client:
         try:
-            _redis_client.close()
+            await _redis_client.aclose()
         except Exception:
             pass
         _redis_client = None
@@ -114,7 +120,7 @@ async def lifespan(app: FastAPI):
 app = FastAPI(
     title="SentinelStream Fraud Engine",
     version="1.0.0",
-    description="High-Throughput Financial Fraud Scoring & Streaming Microservice",
+    description="High-Throughput Asynchronous Financial Fraud Scoring & Streaming Microservice",
     lifespan=lifespan
 )
 
@@ -130,11 +136,15 @@ class TransactionRequest(BaseModel):
     amount: float = Field(..., gt=0, json_schema_extra={"example": 249.99})
     merchant: str = Field(..., json_schema_extra={"example": "Electronics Hub"})
     hour: int = Field(default=12, ge=0, le=23, json_schema_extra={"example": 3})
+    v4: float = Field(default=0.0, json_schema_extra={"example": 0.0})
+    v10: float = Field(default=0.0, json_schema_extra={"example": 0.0})
+    v12: float = Field(default=0.0, json_schema_extra={"example": 0.0})
+    v14: float = Field(default=0.0, json_schema_extra={"example": 0.0})
 
 
-def get_sliding_velocity(user_id: str, window_seconds: int = 60) -> int:
-    """Calculates true sliding-window transaction velocity using Redis Sorted Sets (ZSET)."""
-    client = get_redis_client()
+async def get_sliding_velocity(user_id: str, window_seconds: int = 60) -> int:
+    """Calculates true sliding-window transaction velocity asynchronously using Redis ZSET."""
+    client = await get_redis_client()
     if not client:
         return 1
 
@@ -144,62 +154,25 @@ def get_sliding_velocity(user_id: str, window_seconds: int = 60) -> int:
 
     try:
         pipe = client.pipeline()
-        # Remove timestamps older than the sliding window
         pipe.zremrangebyscore(velocity_key, "-inf", cutoff)
-        # Add current transaction timestamp with unique nano counter to handle sub-millisecond collisions
         member_id = f"{now}:{time.perf_counter_ns()}"
         pipe.zadd(velocity_key, {member_id: now})
-        # Count transactions in current sliding window
         pipe.zcard(velocity_key)
-        # Keep TTL refreshed so idle keys automatically expire
         pipe.expire(velocity_key, window_seconds + 10)
-        results = pipe.execute()
+        results = await pipe.execute()
         return int(results[2])
     except Exception as exc:
-        logger.warning("Redis velocity pipeline failed, defaulting to 1: %s", exc)
+        logger.warning("Async Redis velocity pipeline failed, defaulting to 1: %s", exc)
         return 1
 
 
-def persist_audit_record(record: dict):
-    """Background worker task to persist audit record to PostgreSQL without blocking response."""
-    try:
-        with SessionLocal() as db_session:
-            audit_entry = TransactionAudit(
-                transaction_id=record["transaction_id"],
-                user_id=record["user_id"],
-                amount=record["amount"],
-                merchant=record["merchant"],
-                fraud_score=record["fraud_score"],
-                is_fraud=record["is_fraud"],
-                decision=record["decision"],
-                latency_ms=record["latency_ms"],
-                cache_hit=record.get("cache_hit", False)
-            )
-            db_session.add(audit_entry)
-            db_session.commit()
-    except Exception as exc:
-        logger.error("Failed to persist audit log for tx %s: %s", record.get("transaction_id"), exc)
-
-
-def emit_kafka_alert(payload: dict):
-    """Background worker task to publish high-risk fraud alerts to Kafka."""
-    kp = get_kafka_producer()
-    if not kp:
-        return
-    try:
-        future = kp.send("alerts.flagged", payload)
-        future.add_errback(lambda err: logger.error("Kafka send failed: %s", err))
-    except Exception as exc:
-        logger.error("Kafka emission error for tx %s: %s", payload.get("transaction_id"), exc)
-
-
 @app.get("/health")
-def health():
-    client = get_redis_client()
+async def health():
+    client = await get_redis_client()
     redis_healthy = False
     if client:
         try:
-            redis_healthy = bool(client.ping())
+            redis_healthy = bool(await client.ping())
         except Exception:
             redis_healthy = False
 
@@ -217,17 +190,17 @@ def metrics():
 
 
 @app.post("/api/v1/score")
-def score_transaction(req: TransactionRequest, background_tasks: BackgroundTasks):
+async def score_transaction(req: TransactionRequest, background_tasks: BackgroundTasks):
     start_time = time.perf_counter()
     TX_PROCESSED.inc()
 
     cache_key = f"tx_score:{req.transaction_id}"
-    client = get_redis_client()
+    client = await get_redis_client()
 
-    # 1. Idempotency Cache Check (<1ms)
+    # 1. Asynchronous Idempotency Cache Check (<1ms)
     if client:
         try:
-            cached_val = client.get(cache_key)
+            cached_val = await client.get(cache_key)
             if cached_val:
                 CACHE_HITS.inc()
                 elapsed_ms = (time.perf_counter() - start_time) * 1000
@@ -237,16 +210,20 @@ def score_transaction(req: TransactionRequest, background_tasks: BackgroundTasks
                 data["source"] = "redis_cache"
                 return data
         except Exception as exc:
-            logger.warning("Redis cache read failed: %s", exc)
+            logger.warning("Async Redis cache read failed: %s", exc)
 
-    # 2. Sliding-Window Velocity Calculation
-    velocity = get_sliding_velocity(req.user_id, window_seconds=60)
+    # 2. Asynchronous Sliding-Window Velocity Calculation
+    velocity = await get_sliding_velocity(req.user_id, window_seconds=60)
 
     # 3. Model Scoring
     fraud_score, is_fraud, decision = predict_fraud(
         amount=req.amount,
         hour=req.hour,
-        velocity=velocity
+        velocity=velocity,
+        v4=req.v4,
+        v10=req.v10,
+        v12=req.v12,
+        v14=req.v14
     )
 
     if is_fraud:
@@ -274,9 +251,9 @@ def score_transaction(req: TransactionRequest, background_tasks: BackgroundTasks
     # 5. Populate Idempotency Cache (60s TTL)
     if client:
         try:
-            client.set(cache_key, json.dumps(response_payload), ex=60)
+            await client.set(cache_key, json.dumps(response_payload), ex=60)
         except Exception as exc:
-            logger.warning("Redis cache write failed: %s", exc)
+            logger.warning("Async Redis cache write failed: %s", exc)
 
     # 6. Stream High-Risk Alerts to Kafka via Background Task
     if is_fraud:

@@ -1,3 +1,4 @@
+import asyncio
 import logging
 import os
 from datetime import UTC, datetime
@@ -63,10 +64,26 @@ def init_db():
         logger.error("Failed to initialize database tables: %s", exc)
 
 
-def get_db():
-    """FastAPI database session dependency."""
-    db = SessionLocal()
+def _persist_audit_sync(record: dict):
     try:
-        yield db
-    finally:
-        db.close()
+        with SessionLocal() as db_session:
+            audit_entry = TransactionAudit(
+                transaction_id=record["transaction_id"],
+                user_id=record["user_id"],
+                amount=record["amount"],
+                merchant=record["merchant"],
+                fraud_score=record["fraud_score"],
+                is_fraud=record["is_fraud"],
+                decision=record["decision"],
+                latency_ms=record["latency_ms"],
+                cache_hit=record.get("cache_hit", False)
+            )
+            db_session.add(audit_entry)
+            db_session.commit()
+    except Exception as exc:
+        logger.error("Failed to persist audit log for tx %s: %s", record.get("transaction_id"), exc)
+
+
+async def persist_audit_record(record: dict):
+    """Asynchronous non-blocking worker task to persist audit record to database."""
+    await asyncio.to_thread(_persist_audit_sync, record)

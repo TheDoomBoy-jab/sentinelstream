@@ -1,5 +1,5 @@
 outs:
-- md5: a0f05480d79d712c1b41f510e5d0aa68
-  size: 680
+- md5: 4e799344a6f869e86925bd10f578bd87
+  size: 1061
   hash: md5
   path: model_weights.json
