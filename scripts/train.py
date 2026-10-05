@@ -2,7 +2,7 @@
 
 Generates realistic statistical transaction distributions, trains an L2-regularized
 logistic anomaly classifier using pure NumPy, evaluates precision/recall/ROC-AUC,
-and exports production model weights with feature scalers to model_weights.json.
+exports the dataset to CSV for DVC versioning, and exports model weights to JSON.
 """
 
 import json
@@ -67,6 +67,17 @@ def generate_synthetic_transactions(n_samples: int = 15_000, seed: int = 42):
     return X[indices], y[indices]
 
 
+def save_dataset_csv(X, y, filepath: str = "data/transactions.csv"):
+    """Saves raw feature matrix and target labels to CSV for DVC versioning."""
+    path = Path(filepath)
+    path.parent.mkdir(parents=True, exist_ok=True)
+    header = "amount,hour_risk,velocity,is_fraud\n"
+    with open(path, "w", encoding="utf-8") as f:
+        f.write(header)
+        f.writelines(f"{row[0]:.2f},{row[1]:.0f},{row[2]:.0f},{int(label)}\n" for row, label in zip(X, y, strict=False))
+    logger.info("Saved dataset to %s (%d records)", path.resolve(), len(y))
+
+
 def sigmoid(z):
     return 1.0 / (1.0 + np.exp(-np.clip(z, -25.0, 25.0)))
 
@@ -84,7 +95,7 @@ def train_logistic_regression(X_train, y_train, epochs: int = 1500, lr: float = 
     w_neg = 1.0
     sample_weights = np.where(y_train == 1, w_pos, w_neg)
 
-    for epoch in range(epochs):
+    for _ in range(epochs):
         z = np.dot(X_train, weights) + bias
         preds = sigmoid(z)
         errors = (preds - y_train) * sample_weights
@@ -124,10 +135,13 @@ def evaluate_model(X_test, y_test, weights, bias, thresholds=(0.40, 0.75)):
     }
 
 
-def train_and_export(output_path: str = "model_weights.json"):
-    """End-to-end model training, calibration, and JSON serialization."""
+def train_and_export(output_path: str = "model_weights.json", dataset_path: str = "data/transactions.csv"):
+    """End-to-end dataset export, model training, calibration, and JSON serialization."""
     logger.info("Generating 15,000 synthetic transactions...")
     X, y = generate_synthetic_transactions(n_samples=15_000, seed=42)
+
+    # Export dataset to CSV for DVC tracking
+    save_dataset_csv(X, y, filepath=dataset_path)
 
     # Train / Test split (80 / 20)
     split_idx = int(len(y) * 0.8)
@@ -188,4 +202,4 @@ def train_and_export(output_path: str = "model_weights.json"):
 
 
 if __name__ == "__main__":
-    train_and_export("model_weights.json")
+    train_and_export("model_weights.json", "data/transactions.csv")
