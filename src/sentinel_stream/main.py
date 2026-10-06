@@ -16,6 +16,14 @@ from sentinel_stream.ml_engine import predict_fraud
 logging.basicConfig(level=logging.INFO, format="%(asctime)s [%(levelname)s] %(name)s: %(message)s")
 logger = logging.getLogger("sentinel_stream.api")
 
+try:
+    from sentinel_stream.onnx_scorer import ONNXFraudScorer
+    onnx_scorer = ONNXFraudScorer()
+    logger.info("ONNX Runtime engine initialized successfully for high-performance scoring.")
+except Exception as exc:
+    logger.warning("Failed to initialize ONNX engine (%s). Falling back to standard ML engine.", exc)
+    onnx_scorer = None
+
 REDIS_HOST = os.getenv("REDIS_HOST", "localhost")
 REDIS_PORT = int(os.getenv("REDIS_PORT", 6380))
 KAFKA_BOOTSTRAP = os.getenv("KAFKA_BOOTSTRAP_SERVERS", "localhost:9092")
@@ -215,16 +223,41 @@ async def score_transaction(req: TransactionRequest, background_tasks: Backgroun
     # 2. Asynchronous Sliding-Window Velocity Calculation
     velocity = await get_sliding_velocity(req.user_id, window_seconds=60)
 
-    # 3. Model Scoring
-    fraud_score, is_fraud, decision = predict_fraud(
-        amount=req.amount,
-        hour=req.hour,
-        velocity=velocity,
-        v4=req.v4,
-        v10=req.v10,
-        v12=req.v12,
-        v14=req.v14
-    )
+    # 3. Model Scoring (Prioritizing high-performance C++ ONNX Runtime)
+    if onnx_scorer is not None:
+        try:
+            fraud_score, is_fraud, decision = onnx_scorer.predict(
+                amount=req.amount,
+                velocity=float(velocity),
+                v4=req.v4,
+                v10=req.v10,
+                v12=req.v12,
+                v14=req.v14
+            )
+            engine_source = "onnx_runtime_engine"
+        except Exception as exc:
+            logger.warning("ONNX scoring failed (%s), falling back to baseline engine", exc)
+            fraud_score, is_fraud, decision = predict_fraud(
+                amount=req.amount,
+                hour=req.hour,
+                velocity=velocity,
+                v4=req.v4,
+                v10=req.v10,
+                v12=req.v12,
+                v14=req.v14
+            )
+            engine_source = "ml_engine_instant"
+    else:
+        fraud_score, is_fraud, decision = predict_fraud(
+            amount=req.amount,
+            hour=req.hour,
+            velocity=velocity,
+            v4=req.v4,
+            v10=req.v10,
+            v12=req.v12,
+            v14=req.v14
+        )
+        engine_source = "ml_engine_instant"
 
     if is_fraud:
         FRAUD_DETECTED.inc()
@@ -242,7 +275,7 @@ async def score_transaction(req: TransactionRequest, background_tasks: Backgroun
         "decision": decision,
         "velocity_last_min": velocity,
         "latency_ms": round(elapsed_ms, 3),
-        "source": "ml_engine_instant"
+        "source": engine_source
     }
 
     # 4. Asynchronous Non-Blocking Database Audit Persistence

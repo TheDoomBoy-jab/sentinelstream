@@ -131,3 +131,21 @@ def test_api_score_transaction_endpoint():
         assert result["decision"] in ["APPROVED", "FLAGGED_REVIEW", "BLOCKED"]
         assert "latency_ms" in result
         assert "fraud_score" in result
+
+
+class TestONNXEngine:
+    """Tests for the native ONNX Runtime scoring engine."""
+
+    def test_onnx_scoring_and_decision(self):
+        from sentinel_stream.onnx_scorer import ONNXFraudScorer
+
+        scorer = ONNXFraudScorer()
+        clean_score = scorer.score(amount=15.0, velocity=1.0)
+        assert 0.0 <= clean_score <= 1.0
+
+        fraud_score, is_fraud, decision = scorer.predict(
+            amount=5000.0, velocity=8.0, v4=5.0, v10=-6.0, v12=-7.0, v14=-10.0
+        )
+        assert is_fraud is True
+        assert decision == "BLOCKED"
+        assert fraud_score >= 0.65

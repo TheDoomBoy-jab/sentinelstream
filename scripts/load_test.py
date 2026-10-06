@@ -121,7 +121,9 @@ async def main():
     print(f"  Blocked (Fraud Flagged): {results.get('BLOCKED', 0)}")
     print(f"  Review (Borderline):     {results.get('FLAGGED_REVIEW', 0)}")
     print(f"  Redis Cache Hits:        {results.get('source_redis_cache', 0)}")
-    print(f"  Direct ML Computations:  {results.get('source_ml_engine_instant', 0)}")
+    print(f"  ONNX Engine Inferences:  {results.get('source_onnx_runtime_engine', 0)}")
+    if results.get('source_ml_engine_instant', 0) > 0:
+        print(f"  Fallback ML Engine Hits: {results.get('source_ml_engine_instant', 0)}")
     print("=" * 60)
 
 
