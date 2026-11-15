@@ -11,50 +11,14 @@ _DEFAULT_PATH = Path(__file__).resolve().parent.parent.parent / "model_weights.j
 MODEL_PATH = os.getenv("MODEL_WEIGHTS_PATH", str(_DEFAULT_PATH))
 
 
-def train_and_export_model(target_path: str = MODEL_PATH):
-    """Fallback generator for calibrated anomaly model weights in secure JSON format."""
-    weights = {
-        "model_type": "kaggle_standardized_logistic_anomaly_classifier",
-        "dataset_source": "Kaggle European Cardholders Credit Card Fraud Detection (2013)",
-        "version": "3.0.0",
-        "features": ["amount", "hour_risk", "velocity", "v4", "v10", "v12", "v14"],
-        "scaler": {
-            "mean": {
-                "amount": 88.35, "hour_risk": 0.28, "velocity": 1.45,
-                "v4": 0.0, "v10": 0.0, "v12": 0.0, "v14": 0.0
-            },
-            "scale": {
-                "amount": 250.12, "hour_risk": 0.45, "velocity": 1.25,
-                "v4": 1.41, "v10": 1.08, "v12": 0.99, "v14": 0.95
-            }
-        },
-        "intercept": -3.85,
-        "coefficients": {
-            "amount": 0.85, "hour_risk": 0.95, "velocity": 1.80,
-            "v4": 1.25, "v10": -1.85, "v12": -1.95, "v14": -2.40
-        },
-        "thresholds": {
-            "blocked": 0.65,
-            "review": 0.40
-        },
-        "metrics": {
-            "precision": 0.865,
-            "recall": 0.696,
-            "f1": 0.771
-        }
-    }
-    target = Path(target_path)
-    target.parent.mkdir(parents=True, exist_ok=True)
-    with open(target, "w", encoding="utf-8") as f:
-        json.dump(weights, f, indent=2)
-    logger.info("Exported calibrated model weights to %s", target)
-    return weights
-
-
 def load_model_config(path: str = MODEL_PATH) -> dict:
-    if not os.path.exists(path):
-        return train_and_export_model(path)
-    with open(path, "r", encoding="utf-8") as f:
+    model_path = Path(path)
+    if not model_path.is_file():
+        raise FileNotFoundError(
+            f"Model artifact not found: {model_path}. Restore it with DVC or run "
+            "python scripts/train.py with the training dataset; no fabricated fallback is used."
+        )
+    with model_path.open(encoding="utf-8") as f:
         return json.load(f)
 
 

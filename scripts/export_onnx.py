@@ -24,7 +24,16 @@ def main():
 
     np.random.seed(42)
 
-    df["Velocity"] = np.random.poisson(lam=1.5, size=len(df)).astype(float)
+    # Match the training pipeline: global event count in the preceding 60 seconds.
+    from collections import deque
+    window = deque()
+    velocities = []
+    for timestamp in df["Time"]:
+        window.append(timestamp)
+        while window and window[0] < timestamp - 60:
+            window.popleft()
+        velocities.append(len(window))
+    df["Velocity"] = np.asarray(velocities, dtype=float)
 
     feature_cols = ["Amount", "Velocity", "V4", "V10", "V12", "V14"]
 
@@ -42,7 +51,11 @@ def main():
         ]
     )
 
-    pipeline.fit(X, y, classifier__sample_weight=sample_weights)
+    # Preserve chronological holdout; do not train on evaluation records.
+    split = int(len(y) * 0.8)
+    pipeline.fit(X[:split], y[:split], classifier__sample_weight=sample_weights[:split])
+    from sklearn.metrics import classification_report
+    print(classification_report(y[split:], pipeline.predict(X[split:]), zero_division=0))
 
     print(f"Converting pipeline into ONNX Graph targeting {OUTPUT_ONNX}")
 

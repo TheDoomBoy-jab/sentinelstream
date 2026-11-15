@@ -18,6 +18,8 @@ logger = logging.getLogger("sentinel_stream.api")
 
 try:
     from sentinel_stream.onnx_scorer import ONNXFraudScorer
+    if os.getenv("ENABLE_ONNX", "0") != "1":
+        raise RuntimeError("ONNX disabled by default; export and validate a model, then set ENABLE_ONNX=1")
     onnx_scorer = ONNXFraudScorer()
     logger.info("ONNX Runtime engine initialized successfully for high-performance scoring.")
 except Exception as exc:
